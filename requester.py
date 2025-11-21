@@ -538,7 +538,7 @@ def run_loop(args: argparse.Namespace) -> None:
     proxies = [] if args.direct else load_proxies(Path(args.proxy_file))
     if args.direct and proxies:
         logging.info(
-            "--direct включен: игнорируем %s прокси из %s",
+            "--direct enabled: ignoring %s proxies from %s",
             len(proxies),
             args.proxy_file,
         )
