@@ -6,7 +6,10 @@ def test_faker_placeholders(placeholder_dir):
     
     # Aliases
     assert "@" in resolver.replace("{email}")
-    assert "Mozilla" in resolver.replace("{user_agent}")
+    
+    ua = resolver.replace("{user_agent}")
+    assert ua and ua != "{user_agent}"
+    # Some old Opera UAs don't have Mozilla, so we just check it's not empty
     
     # Generic faker call
     res_city = resolver.replace("{faker:city}")
