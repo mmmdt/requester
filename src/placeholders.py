@@ -2,7 +2,7 @@ import logging
 import re
 import random
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 try:
     from faker import Faker
 except ImportError:
@@ -65,8 +65,8 @@ class PlaceholderResolver:
         self.values[name] = lines
         self.indexes.setdefault(name, 0)
 
-    def _next_value(self, name: str) -> str:
-        # Built-in dynamic placeholders
+    def _try_builtin(self, name: str) -> Optional[str]:
+        """Try to resolve a built-in placeholder (uuid, timestamp, random_int)."""
         if name == "uuid":
             import uuid
             return str(uuid.uuid4())
@@ -80,26 +80,36 @@ class PlaceholderResolver:
                     low, high = int(parts[1]), int(parts[2])
                     return str(random.randint(low, high))
                 except ValueError:
-                    pass # Fallback to file lookup if parsing fails
+                    pass
+        return None
 
-        # Faker integration
-        if self._faker:
-            if name == "email":
-                return self._faker.email()
-            if name == "first_name":
-                return self._faker.first_name()
-            if name == "last_name":
-                return self._faker.last_name()
-            if name == "user_agent":
-                return self._faker.user_agent()
-            if name == "country":
-                return self._faker.country()
+    def _try_faker(self, name: str) -> Optional[str]:
+        """Try to resolve using Faker if available."""
+        if not self._faker:
+            return None
             
-            if name.startswith("faker:"):
+        if name == "email":
+            return self._faker.email()
+        if name == "first_name":
+            return self._faker.first_name()
+        if name == "last_name":
+            return self._faker.last_name()
+        if name == "user_agent":
+            return self._faker.user_agent()
+        if name == "country":
+            return self._faker.country()
+        
+        if name.startswith("faker:"):
+            try:
                 method_name = name.split(":", 1)[1]
                 if hasattr(self._faker, method_name):
                     return str(getattr(self._faker, method_name)())
+            except IndexError:
+                pass
+        return None
 
+    def _get_from_file(self, name: str) -> str:
+        """Resolve from a text file."""
         self._ensure_loaded(name)
         vals = self.values[name]
         if self.rotation == "random":
@@ -107,6 +117,20 @@ class PlaceholderResolver:
         idx = self.indexes.get(name, 0) % len(vals)
         self.indexes[name] = (idx + 1) % len(vals)
         return vals[idx]
+
+    def _next_value(self, name: str) -> str:
+        # 1. Try Built-ins
+        val = self._try_builtin(name)
+        if val is not None:
+            return val
+
+        # 2. Try Faker
+        val = self._try_faker(name)
+        if val is not None:
+            return val
+
+        # 3. Fallback to File
+        return self._get_from_file(name)
 
     def replace(self, text: str) -> str:
         names = set(self.pattern.findall(text))
