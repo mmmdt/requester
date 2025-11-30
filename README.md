@@ -69,6 +69,10 @@ python requester.py
   - `{uuid}`: Generates a random UUID v4.
   - `{timestamp}`: Current UNIX timestamp (seconds).
   - `{random_int:min:max}`: Random integer between min and max (e.g., `{random_int:100:999}`).
+- **Faker (Realistic Data)**:
+  - *Requires `pip install Faker` (included in requirements).*
+  - `{email}`, `{first_name}`, `{last_name}`, `{user_agent}`, `{country}`.
+  - `{faker:method}`: Calls any Faker method, e.g., `{faker:ipv4}`, `{faker:phone_number}`, `{faker:address}`.
 - **Rotation**: File-based values support **Sequential** (default) or **Random** rotation (see `config.py`).
 
 ### 🌐 Proxy System (`proxies.txt`)

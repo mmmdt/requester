@@ -3,6 +3,10 @@ import re
 import random
 from pathlib import Path
 from typing import Dict, List
+try:
+    from faker import Faker
+except ImportError:
+    Faker = None  # Optional dependency handling, though we added it to requirements
 
 class PlaceholderResolver:
     pattern = re.compile(r"\{([A-Za-z0-9_\-:]+)\}")
@@ -19,6 +23,11 @@ class PlaceholderResolver:
                 rotation,
             )
             self.rotation = "sequential"
+        
+        if Faker:
+            self._faker = Faker()
+        else:
+            self._faker = None
 
     def _path_for(self, name: str) -> Path:
         direct = self.folder / name
@@ -35,6 +44,12 @@ class PlaceholderResolver:
         
         # Skip loading for known dynamic patterns
         if name == "uuid" or name == "timestamp" or name.startswith("random_int:"):
+            return
+        
+        # Skip loading for Faker patterns (only specific aliases)
+        if self._faker and (
+            name in {"email", "first_name", "last_name", "user_agent", "country"} 
+        ):
             return
 
         path = self._path_for(name)
@@ -66,6 +81,24 @@ class PlaceholderResolver:
                     return str(random.randint(low, high))
                 except ValueError:
                     pass # Fallback to file lookup if parsing fails
+
+        # Faker integration
+        if self._faker:
+            if name == "email":
+                return self._faker.email()
+            if name == "first_name":
+                return self._faker.first_name()
+            if name == "last_name":
+                return self._faker.last_name()
+            if name == "user_agent":
+                return self._faker.user_agent()
+            if name == "country":
+                return self._faker.country()
+            
+            if name.startswith("faker:"):
+                method_name = name.split(":", 1)[1]
+                if hasattr(self._faker, method_name):
+                    return str(getattr(self._faker, method_name)())
 
         self._ensure_loaded(name)
         vals = self.values[name]
