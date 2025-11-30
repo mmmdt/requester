@@ -43,3 +43,23 @@ def test_no_placeholders_in_text(placeholder_dir):
     resolver = PlaceholderResolver(placeholder_dir)
     text = "No variables here"
     assert resolver.replace(text) == text
+
+def test_dynamic_placeholders(placeholder_dir):
+    resolver = PlaceholderResolver(placeholder_dir)
+    
+    # UUID
+    res_uuid = resolver.replace("ID: {uuid}")
+    assert "ID: " in res_uuid
+    assert len(res_uuid.split(" ")[1]) == 36 # uuid length
+
+    # Timestamp
+    import time
+    now = int(time.time())
+    res_ts = resolver.replace("Time: {timestamp}")
+    ts_val = int(res_ts.split(" ")[1])
+    assert abs(ts_val - now) < 5 # should be very close
+
+    # Random Int
+    res_int = resolver.replace("Val: {random_int:10:20}")
+    val = int(res_int.split(" ")[1])
+    assert 10 <= val <= 20

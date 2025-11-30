@@ -1,6 +1,7 @@
 import argparse
 import logging
 import time
+import concurrent.futures
 from pathlib import Path
 from typing import Iterable
 import requests
@@ -21,7 +22,7 @@ def iter_request_files() -> Iterable[Path]:
             continue
         yield path
 
-def warn_no_proxies(delay: bool, source: Path, direct_flag: bool) -> None: 
+def warn_no_proxies(delay: bool, source: Path, direct_flag: bool) -> None:
     banner = "\n".join(
         [
             "=" * 70,
@@ -63,7 +64,34 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Check all proxies in parallel and exit.",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=10,
+        help="Number of parallel workers for sending requests (default: 10).",
+    )
     return parser.parse_args()
+
+def process_single_request(
+    path: Path,
+    resolver: PlaceholderResolver,
+    session: requests.Session,
+    pool: ProxyPool,
+    response_sink: ResponseSink
+) -> None:
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+        raw_text = resolver.replace(raw_text)
+        parsed = parse_raw_request(raw_text)
+        # Note: Session is not thread-safe if we modify it, but requests.Session 
+        # is generally thread-safe for making requests.
+        # However, to be purely safe with cookies/adapters, one might want distinct sessions 
+        # or a thread-local session. For raw replaying, sharing is usually fine or desired (cookies).
+        response = send_with_proxy_failover(parsed, session, pool)
+        if response_sink.enabled():
+            response_sink.write(response)
+    except Exception as exc:
+        logging.error("Failed to send %s: %s", path.name, exc)
 
 def run_loop(args: argparse.Namespace) -> None:
     session = requests.Session()
@@ -88,6 +116,8 @@ def run_loop(args: argparse.Namespace) -> None:
         warn_no_proxies(delay=not args.direct, source=Path(args.proxy_file), direct_flag=args.direct)
 
     logging.info("Starting sender. Reading from %s", config.REQUESTS_DIR)
+    logging.info("Parallel workers: %s", args.workers)
+
     resolver = PlaceholderResolver(
         folder=Path(config.PLACEHOLDERS_DIR),
         rotation=config.PLACEHOLDER_ROTATION,
@@ -104,16 +134,13 @@ def run_loop(args: argparse.Namespace) -> None:
                 logging.warning("No *.txt request files found in %s, stopping.", config.REQUESTS_DIR)
                 break
 
-            for path in files:
-                try:
-                    raw_text = path.read_text(encoding="utf-8")
-                    raw_text = resolver.replace(raw_text)
-                    parsed = parse_raw_request(raw_text)
-                    response = send_with_proxy_failover(parsed, session, pool)
-                    if response_sink.enabled():
-                        response_sink.write(response)
-                except Exception as exc:
-                    logging.error("Failed to send %s: %s", path.name, exc)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
+                futures = [
+                    executor.submit(process_single_request, path, resolver, session, pool, response_sink)
+                    for path in files
+                ]
+                # Wait for all to complete
+                concurrent.futures.wait(futures)
 
             time.sleep(config.INTERVAL_SECONDS)
     except KeyboardInterrupt:
@@ -122,7 +149,6 @@ def run_loop(args: argparse.Namespace) -> None:
         logging.error("%s. Terminating.", exc)
     finally:
         session.close()
-
 def main() -> None:
     setup_logging()
     args = parse_args()
